@@ -31,6 +31,9 @@ import pylibmc
 # global flag to announce what direction we're moving
 direction = "stopped"
 
+# global flag to announce that we're in autonomous mode
+autonomousMode = False
+
 def forward():
 	global direction
 	direction = "forward"
@@ -98,11 +101,16 @@ def stop():
 
 def cleanup():
 	global collisionDetectThread
+	global autonomousThread
+	global autonomousMode
 	global server
 	global sockfile
 
 	collisionDetectThread.do_run = False
+	autonomousThread.do_run = False
 	
+	autonomousMode = False
+
 	server.close()
 	os.remove(sockfile)
 
@@ -128,12 +136,35 @@ def checkDistanceReading(key):
 		try:
 			if float(distance) <= 2.5:
 				stop()
+				
 				retVal = True
 		except Exception as e:
 			retVal = False		
 
 
 	return retVal
+
+# thread function to make bot run in autonomous mode
+# basically tells the bot to move forward until collision detection thread says it's about to hit something
+# then it makes the bot move left twice and then attempt to go forward again
+# it will repeat the process as ncessary until collision detection no longer sees a danger
+def autonomous():
+	global autonomousMode
+	global direction
+
+	t = threading.currentThread()
+
+	# keep running until our main thread sets "do_run" to false
+        while getattr(t, "do_run", True):
+		while autonomousMode:
+			if direction != "forward":
+				left()
+				left()
+				forward()
+			time.sleep(0.1)
+
+		time.sleep(1)
+
 
 
 # thread function to continuously check how close our front or rear is to an object
@@ -156,6 +187,7 @@ def collisionDetect():
 # thread function to handle socket client requests
 def sockClientHandler(client, addr):
 	global direction
+	global autonomousMode
 
 	try:
 	        while True:
@@ -165,14 +197,38 @@ def sockClientHandler(client, addr):
                         	break
                         else:
                                 if direction == "forward":
+					print "Forward\n"
+
+					autonomousMode = False
+
                                 	forward()
                                 elif direction  == "reverse":
+					print "Reverse\n"
+
+					autonomousMode = False
+
                                         reverse()
                                 elif direction == "left":
+					print "Left\n"
+
+					autonomousMode = False
+
                                         left()
                                 elif direction == "right":
+					print "Right\n"
+
+					autonomousMode = False
+
                                         right()
+				elif direction == "autonomous":
+					print "Autonomous\n"
+
+					autonomousMode = True
                                 else:
+					print "Stop\n"
+
+					autonomousMode = False
+
                                         stop()
 	finally:
                 client.close()	
@@ -196,6 +252,10 @@ signal.signal(signal.SIGINT, signal_handler)
 # start collision detection thread
 collisionDetectThread = threading.Thread(target=collisionDetect)
 collisionDetectThread.start()
+
+# start autonomous thread
+autonomousThread = threading.Thread(target=autonomous)
+autonomousThread.start()
 
 # set up our socket
 sockfile = "./bot_direction.sock"

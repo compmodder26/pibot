@@ -21,6 +21,7 @@ signal.signal(signal.SIGINT, signal_handler)
 
 stdscr = curses.initscr()
 stdscr.keypad(1)
+curses.noecho()
 
 # Create a UDS socket
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -47,6 +48,8 @@ try:
 			sock.sendall("left")
 		elif char == curses.KEY_RIGHT:
 			sock.sendall("right")
+		elif curses.keyname(char) == "a":
+			sock.sendall("autonomous") 
 		else:
 			sock.sendall("stop")
 

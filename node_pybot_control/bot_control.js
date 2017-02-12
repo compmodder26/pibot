@@ -22,6 +22,7 @@ io.sockets.on('connection', function (socket) {
 			case "left":
 			case "right":
 			case "stop":
+			case "autonomous":
 				client.write(direction);
 				break;
 			default:

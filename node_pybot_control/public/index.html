@@ -46,6 +46,8 @@
 		            <td></td>
 		    </tr>
 	</table>
+
+	<p><button type="button" onclick="autonomous()">Autonomous</button></p>
 </div>
 
 <script type="text/javascript">
@@ -70,6 +72,10 @@ function right()
 function reverse()
 {
 	socket.emit('drive', { value: 'reverse' });
+}
+function autonomous()
+{
+	socket.emit('drive', { value: 'autonomous' });
 }
 </script>
 </body>
