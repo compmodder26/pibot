@@ -197,36 +197,24 @@ def sockClientHandler(client, addr):
                         	break
                         else:
                                 if direction == "forward":
-					print "Forward\n"
-
 					autonomousMode = False
 
                                 	forward()
                                 elif direction  == "reverse":
-					print "Reverse\n"
-
 					autonomousMode = False
 
                                         reverse()
                                 elif direction == "left":
-					print "Left\n"
-
 					autonomousMode = False
 
                                         left()
                                 elif direction == "right":
-					print "Right\n"
-
 					autonomousMode = False
 
                                         right()
 				elif direction == "autonomous":
-					print "Autonomous\n"
-
 					autonomousMode = True
                                 else:
-					print "Stop\n"
-
 					autonomousMode = False
 
                                         stop()
