@@ -1,0 +1,76 @@
+<html>
+<head>
+	<script src="socket.io/socket.io.js"></script>
+
+	<style type="text/css">
+		#tblContainer {
+			width: 800px;
+		    height: 800px;
+		    margin-left: auto;
+		    margin-right: auto;
+		    text-align:center;
+		}
+
+		#buttonsTable {
+				border: 0;
+				width: 800px;
+				height: 800px;
+				margin-left: auto;
+				margin-right: auto;
+		}
+
+		#buttonsTable td {
+			text-align:center;
+			width: 33%;
+		}
+	</style>
+</head>
+<body>
+<div id="tblContainer">
+	<h1>Pi-Bot Remote Control</h1>
+
+	<table id="buttonsTable" cellpadding="0' cellspacing="0">
+		    <tr>
+		            <td></td>
+		            <td><img src="images/arrow_blue_up.png" id="fwdButton" onclick="forward()" /></td>
+		            <td></td>
+		    </tr>
+		    <tr>
+		            <td><img src="images/arrow_blue_left.png" id="lftButton" onclick="left()" /></td>
+		            <td><img src="images/Stop-Button.png" id="stpButton" onclick="stop()" /></td>
+		            <td><img src="images/arrow_blue_right.png" id="rgtButton" onclick="right()" /></td>
+		    </tr>
+		    <tr>
+		            <td></td>
+		            <td><img src="images/arrow_blue_down.png" id="rvsButton" onclick="reverse()" /></td>
+		            <td></td>
+		    </tr>
+	</table>
+</div>
+
+<script type="text/javascript">
+var socket = io.connect();
+
+function forward()
+{
+	socket.emit('drive', { value: 'forward' });
+}
+function stop()
+{
+	socket.emit('drive', { value: 'stop' });
+}
+function left()
+{
+	socket.emit('drive', { value: 'left' });
+}
+function right()
+{
+	socket.emit('drive', { value: 'right' });
+}
+function reverse()
+{
+	socket.emit('drive', { value: 'reverse' });
+}
+</script>
+</body>
+</html>
