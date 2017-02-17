@@ -219,7 +219,7 @@ def getDistance(TRIG, ECHO, desiredDirection, key, threshold):
 
 		distanceMeasures[key] = distance
 
-		#print key,": ",distance
+		print key,": ",distance
 
 		if direction == desiredDirection:
 			if distance <= threshold:
@@ -240,11 +240,11 @@ def measureThread():
 
         # keep running until our main thread sets "do_run" to false
         while getattr(t, "do_run", True):
-		getDistance(FRONT_RIGHT_TRIG, FRONT_RIGHT_ECHO, "forward", "front_right_distance", 15)				
-		getDistance(FRONT_CENTER_TRIG, FRONT_CENTER_ECHO, "forward", "front_center_distance", 15)				
-		getDistance(FRONT_LEFT_TRIG, FRONT_LEFT_ECHO, "forward", "front_left_distance", 15)				
+		getDistance(FRONT_RIGHT_TRIG, FRONT_RIGHT_ECHO, "forward", "front_right_distance", 20)				
+		getDistance(FRONT_CENTER_TRIG, FRONT_CENTER_ECHO, "forward", "front_center_distance", 20)				
+		getDistance(FRONT_LEFT_TRIG, FRONT_LEFT_ECHO, "forward", "front_left_distance", 20)				
 
-		time.sleep(0.01)	
+		time.sleep(0.15)
 
 # signal handler to catch Ctrl+c
 signal.signal(signal.SIGINT, signal_handler)
