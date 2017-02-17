@@ -7,11 +7,8 @@
 # Sets up a backend listener for clients to connect to,
 # in order to send commands to drive the bot
 #
-# Employs optional collision detection
-# This is done by checking memcached values for front and
-# rear ultrasonic sensor outputs.  To make use of this
-# a separate backend needs to be running for the sensors
-# that continuously updates these memcached values
+# Employs optional ultrasonic sensor usage for collision
+# avoidance.
 #
 # Author: Brian Helm
 # Created On: 2017-02-10
@@ -34,26 +31,38 @@ direction = "stopped"
 # global flag to announce that we're in autonomous mode
 autonomousMode = False
 
+# global distance storage associative array
+distanceMeasures = { "front_right_distance" : 100, "front_center_distance" : 100, "front_left_distance" : 100 }
+
+# flag indicating if we are using sensors for collision avoidance (set False to disable)
+doCollisionDetect = True
+
+# global distance thread variable declaration
+distThread = None
+
 def forward():
 	global direction
+	global distanceMeasures
+	global doCollisionDetect
 	direction = "forward"
 
 	# don't attempt to move forward if we're too close to an object
-	if not checkDistanceReading("us_front_distance"):
+	if not doCollisionDetect or (distanceMeasures["front_right_distance"] > 20 and distanceMeasures["front_center_distance"] > 20 and  distanceMeasures["front_left_distance"] > 20):
 		GPIO.output(LEFT_FORWARD, 1)
 		GPIO.output(LEFT_REVERSE, 0)
 		GPIO.output(RIGHT_FORWARD, 1)
 		GPIO.output(RIGHT_REVERSE, 0)
+	else:
+		direction = "stopped"
+
 def reverse():
 	global direction
 	direction = "reverse"
 
-	# don't attempt to move backward if we're too close to an object
-	if not checkDistanceReading("us_rear_distance"):
-		GPIO.output(LEFT_FORWARD, 0)
-		GPIO.output(LEFT_REVERSE, 1)
-		GPIO.output(RIGHT_FORWARD, 0)
-		GPIO.output(RIGHT_REVERSE, 1)
+	GPIO.output(LEFT_FORWARD, 0)
+	GPIO.output(LEFT_REVERSE, 1)
+	GPIO.output(RIGHT_FORWARD, 0)
+	GPIO.output(RIGHT_REVERSE, 1)
 
 def right():
 	global direction
@@ -65,7 +74,7 @@ def right():
 	GPIO.output(RIGHT_FORWARD, 0)
 	GPIO.output(RIGHT_REVERSE, 1)
 
-	time.sleep(0.05)
+	time.sleep(0.1)
 
 	GPIO.output(LEFT_FORWARD, 0)
 	GPIO.output(LEFT_REVERSE, 0)
@@ -82,7 +91,7 @@ def left():
 	GPIO.output(RIGHT_FORWARD, 1)
 	GPIO.output(RIGHT_REVERSE, 0)
 
-	time.sleep(0.05)
+	time.sleep(0.1)
 
 	GPIO.output(LEFT_FORWARD, 0)
 	GPIO.output(LEFT_REVERSE, 0)
@@ -100,14 +109,17 @@ def stop():
         GPIO.output(RIGHT_REVERSE, 0)
 
 def cleanup():
-	global collisionDetectThread
+	global distThread
 	global autonomousThread
 	global autonomousMode
 	global server
 	global sockfile
+	global doCollisionDetect
 
-	collisionDetectThread.do_run = False
 	autonomousThread.do_run = False
+
+	if doCollisionDetect:
+        	distThread.do_run = False
 	
 	autonomousMode = False
 
@@ -124,29 +136,9 @@ def signal_handler(signal, frame):
 	sys.exit(0)
 
 
-# attempts to read front or rear memcached reading for distance away from closest object
-def checkDistanceReading(key):
-	mem = pylibmc.Client(["127.0.0.1"], binary=True, behaviors={"tcp_nodelay": True, "ketama": True})
-
-	retVal = False
-
-	distance = mem.get(key)
-
-	if distance != None:
-		try:
-			if float(distance) <= 2.5:
-				stop()
-				
-				retVal = True
-		except Exception as e:
-			retVal = False		
-
-
-	return retVal
-
 # thread function to make bot run in autonomous mode
 # basically tells the bot to move forward until collision detection thread says it's about to hit something
-# then it makes the bot move left twice and then attempt to go forward again
+# then it makes the bot move left and then attempt to go forward again
 # it will repeat the process as ncessary until collision detection no longer sees a danger
 def autonomous():
 	global autonomousMode
@@ -159,29 +151,11 @@ def autonomous():
 		while autonomousMode:
 			if direction != "forward":
 				left()
-				left()
 				forward()
-			time.sleep(0.1)
+			time.sleep(0.01)
 
-		time.sleep(1)
+		time.sleep(0.5)
 
-
-
-# thread function to continuously check how close our front or rear is to an object
-def collisionDetect():
-	global direction
-
-	t = threading.currentThread()
-
-	# keep running until our main thread sets "do_run" to false
-	while getattr(t, "do_run", True):
-		if direction == "forward":
-			checkDistanceReading("us_front_distance")
-				
-		elif direction == "reverse":
-			checkDistanceReading("us_rear_distance")
-
-		time.sleep(0.05)
 
 
 # thread function to handle socket client requests
@@ -221,25 +195,101 @@ def sockClientHandler(client, addr):
 	finally:
                 client.close()	
 
-# define friendly names for our pins
+
+def getDistance(TRIG, ECHO, desiredDirection, key, threshold):
+	global distanceMeasures
+	global direction
+
+	errCount = 0
+
+	try:
+	        GPIO.output(TRIG, True)
+                time.sleep(0.00001)
+               	GPIO.output(TRIG, False)
+
+	        while GPIO.input(ECHO)==0:
+        	        pulse_start = time.time()
+	
+        	while GPIO.input(ECHO)==1:
+                        pulse_end = time.time()
+
+	        pulse_duration = pulse_end - pulse_start
+
+        	distance = round(pulse_duration * 17150, 2)
+
+		distanceMeasures[key] = distance
+
+		#print key,": ",distance
+
+		if direction == desiredDirection:
+			if distance <= threshold:
+				stop();
+		
+	except Exception as e:
+		errCount += 1
+
+def measureThread():
+	global FRONT_RIGHT_TRIG
+	global FRONT_RIGHT_ECHO 
+	global FRONT_CENTER_TRIG
+	global FRONT_CENTER_ECHO
+	global FRONT_LEFT_TRIG
+	global FRONT_LEFT_ECHO
+
+	t = threading.currentThread()
+
+        # keep running until our main thread sets "do_run" to false
+        while getattr(t, "do_run", True):
+		getDistance(FRONT_RIGHT_TRIG, FRONT_RIGHT_ECHO, "forward", "front_right_distance", 15)				
+		getDistance(FRONT_CENTER_TRIG, FRONT_CENTER_ECHO, "forward", "front_center_distance", 15)				
+		getDistance(FRONT_LEFT_TRIG, FRONT_LEFT_ECHO, "forward", "front_left_distance", 15)				
+
+		time.sleep(0.01)	
+
+# signal handler to catch Ctrl+c
+signal.signal(signal.SIGINT, signal_handler)
+
+# define friendly names for our pins (change to whatever your setup is)
 LEFT_FORWARD = 17
 LEFT_REVERSE = 18
 RIGHT_FORWARD = 22
 RIGHT_REVERSE = 23
+FRONT_RIGHT_TRIG = 8
+FRONT_RIGHT_ECHO = 11
+FRONT_CENTER_TRIG = 25
+FRONT_CENTER_ECHO = 9
+FRONT_LEFT_TRIG = 12
+FRONT_LEFT_ECHO = 6
 
 # init GPIO
 GPIO.setmode(GPIO.BCM)
+
+# init motor pins
 GPIO.setup(LEFT_FORWARD, GPIO.OUT)
 GPIO.setup(LEFT_REVERSE, GPIO.OUT)
 GPIO.setup(RIGHT_FORWARD, GPIO.OUT)
 GPIO.setup(RIGHT_REVERSE, GPIO.OUT)
 
-# signal handler to catch Ctrl+c
-signal.signal(signal.SIGINT, signal_handler)
+if doCollisionDetect:
+	# Init ultrasonic sensor pins
+	GPIO.setup(FRONT_RIGHT_TRIG,GPIO.OUT)
+	GPIO.setup(FRONT_RIGHT_ECHO,GPIO.IN)
+	GPIO.setup(FRONT_CENTER_TRIG,GPIO.OUT)
+	GPIO.setup(FRONT_CENTER_ECHO,GPIO.IN)
+	GPIO.setup(FRONT_LEFT_TRIG,GPIO.OUT)
+	GPIO.setup(FRONT_LEFT_ECHO,GPIO.IN)
 
-# start collision detection thread
-collisionDetectThread = threading.Thread(target=collisionDetect)
-collisionDetectThread.start()
+	# start up our trigger pins
+	GPIO.output(FRONT_RIGHT_TRIG, False)
+	GPIO.output(FRONT_CENTER_TRIG, False)
+	GPIO.output(FRONT_LEFT_TRIG, False)
+
+	# give them time to settle down
+	time.sleep(2)
+
+	# start distance detection thread
+	distThread = threading.Thread(target=measureThread)
+	distThread.start()
 
 # start autonomous thread
 autonomousThread = threading.Thread(target=autonomous)
