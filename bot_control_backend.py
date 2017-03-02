@@ -154,7 +154,7 @@ def autonomous():
 				forward()
 			time.sleep(0.01)
 
-		time.sleep(0.5)
+		time.sleep(1)
 
 
 
@@ -219,7 +219,7 @@ def getDistance(TRIG, ECHO, desiredDirection, key, threshold):
 
 		distanceMeasures[key] = distance
 
-		print key,": ",distance
+		#print key,": ",distance
 
 		if direction == desiredDirection:
 			if distance <= threshold:
