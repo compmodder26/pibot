@@ -245,6 +245,9 @@ function onDataChannel(event) {
     datachannel = event.channel;
 
     event.channel.onopen = function () {
+    	document.getElementById('videoLoading').style.display = 'none';
+    	document.getElementById('pibot_vid_feed').style.display = 'inline';
+    
         console.log("Data Channel is open!");
         //document.getElementById('datachannels').disabled = false;
     };
@@ -286,8 +289,6 @@ function onRemoteStreamAdded(event) {
     console.log("Remote stream added:", URL.createObjectURL(event.stream));
     var remoteVideoElement = document.getElementById('pibot_vid_feed');
     remoteVideoElement.src = URL.createObjectURL(event.stream);
-    document.getElementById('videoLoading').style.display = 'none';
-    remoteVideoElement.style.display = 'inline';
     remoteVideoElement.play();
 }
 
