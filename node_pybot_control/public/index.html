@@ -68,6 +68,16 @@
 		#tblContainer td img {
 			width: 95%;
 		}
+		
+		#pibot_vid_feed {
+			display: none;
+		}
+		
+		#videoLoading {
+			width:441px;
+			height:291px;
+			margin:auto;
+		}
 
 	</style>
 </head>
@@ -76,7 +86,7 @@
 
 	<!-- Video View -->
 	<div class="container" id="vidContainer">
-		<!--<img src="/camera" style="width:100%; height:100%" />-->
+		<img src="images/Loading_icon.gif" width="441" height="291" id="videoLoading" />
 		<video style="width: 100%; height:100%" id="pibot_vid_feed" autoplay>
 			Your browser does not support the video tag.
 		</video>
@@ -272,6 +282,8 @@ function onRemoteStreamAdded(event) {
     console.log("Remote stream added:", URL.createObjectURL(event.stream));
     var remoteVideoElement = document.getElementById('pibot_vid_feed');
     remoteVideoElement.src = URL.createObjectURL(event.stream);
+    document.getElementById('videoLoading').style.display = 'none';
+    remoteVideoElement.style.display = 'inline';
     remoteVideoElement.play();
 }
 
