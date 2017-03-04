@@ -21,7 +21,7 @@
 		}
 
 		@media screen and (orientation:landscape) {
-			@media screen and (min-device-width: 768px) and (max-device-width: 1824px) {
+			@media screen and (min-device-width: 768px) {
 				#vidContainer {
                 		        width: 75%;
 					height: 80%;
@@ -76,8 +76,8 @@
 
 	<!-- Video View -->
 	<div class="container" id="vidContainer">
-		<video style="width: 100%; height:100%" autoplay>
-			<source src="http://192.168.0.16:9080/stream/video.mjpeg" type="video/mp4">
+		<!--<img src="/camera" style="width:100%; height:100%" />-->
+		<video style="width: 100%; height:100%" id="pibot_vid_feed" autoplay>
 			Your browser does not support the video tag.
 		</video>
 	</div>
@@ -163,6 +163,339 @@ function checkKey(e) {
     }
 
 }
+
+var signalling_server_hostname = location.hostname || "192.168.0.16";
+var signalling_server_address = signalling_server_hostname + ':' + (location.port || 9080);
+var isFirefox = typeof InstallTrigger !== 'undefined';// Firefox 1.0+
+
+var failureCount = 0;
+var ws = null;
+var pc;
+var gn;
+var datachannel, localdatachannel;
+var audio_video_stream;
+var recorder = null;
+var recordedBlobs;
+var pcConfig = {"iceServers": [
+        {"urls": ["stun:stun.l.google.com:19302", "stun:" + signalling_server_hostname + ":3478"]}
+    ]};
+var pcOptions = {
+    optional: [
+        // Deprecated:
+        //{RtpDataChannels: false},
+        //{DtlsSrtpKeyAgreement: true}
+    ]
+};
+var mediaConstraints = {
+    optional: [],
+    mandatory: {
+        OfferToReceiveAudio: true,
+        OfferToReceiveVideo: true
+    }
+};
+var keys = [];
+
+RTCPeerConnection = window.mozRTCPeerConnection || window.webkitRTCPeerConnection;
+RTCSessionDescription = window.mozRTCSessionDescription || window.RTCSessionDescription;
+RTCIceCandidate = window.mozRTCIceCandidate || window.RTCIceCandidate;
+navigator.getUserMedia = navigator.getUserMedia || navigator.mozGetUserMedia || navigator.webkitGetUserMedia || navigator.msGetUserMedia;
+var URL =  window.URL || window.webkitURL;
+
+function createPeerConnection() {
+    try {
+        var pcConfig_ = pcConfig;
+        /*try {
+            ice_servers = document.getElementById('ice_servers').value;
+            if (ice_servers) {
+                pcConfig_.iceServers = JSON.parse(ice_servers);
+            }
+        } catch (e) {
+            alert(e + "\nExample: "
+                    + '\n[ {"urls": "stun:stun1.example.net"}, {"urls": "turn:turn.example.org", "username": "user", "credential": "myPassword"} ]'
+                    + "\nContinuing with built-in RTCIceServer array");
+        }*/
+        console.log(JSON.stringify(pcConfig_));
+        pc = new RTCPeerConnection(pcConfig_, pcOptions);
+        pc.onicecandidate = onIceCandidate;
+        pc.onaddstream = onRemoteStreamAdded;
+        pc.onremovestream = onRemoteStreamRemoved;
+        pc.ondatachannel = onDataChannel;
+        console.log("peer connection successfully created!");
+    } catch (e) {
+        console.log("createPeerConnection() failed");
+    }
+}
+
+function onDataChannel(event) {
+    console.log("onDataChannel()");
+    datachannel = event.channel;
+
+    event.channel.onopen = function () {
+        console.log("Data Channel is open!");
+        //document.getElementById('datachannels').disabled = false;
+    };
+
+    event.channel.onerror = function (error) {
+        console.log("Data Channel Error:", error);
+    };
+
+    event.channel.onmessage = function (event) {
+        console.log("Got Data Channel Message:", event.data);
+        //document.getElementById('datareceived').value = event.data;
+    };
+
+    event.channel.onclose = function () {
+        datachannel = null;
+        //document.getElementById('datachannels').disabled = true;
+        console.log("The Data Channel is Closed");
+    };
+}
+
+function onIceCandidate(event) {
+    if (event.candidate) {
+        var candidate = {
+            sdpMLineIndex: event.candidate.sdpMLineIndex,
+            sdpMid: event.candidate.sdpMid,
+            candidate: event.candidate.candidate
+        };
+        var command = {
+            command_id: "addicecandidate",
+            data: JSON.stringify(candidate)
+        };
+        ws.send(JSON.stringify(command));
+    } else {
+        console.log("End of candidates.");
+    }
+}
+
+function onRemoteStreamAdded(event) {
+    console.log("Remote stream added:", URL.createObjectURL(event.stream));
+    var remoteVideoElement = document.getElementById('pibot_vid_feed');
+    remoteVideoElement.src = URL.createObjectURL(event.stream);
+    remoteVideoElement.play();
+}
+
+function onRemoteStreamRemoved(event) {
+    var remoteVideoElement = document.getElementById('pibot_vid_feed');
+    remoteVideoElement.src = '';
+}
+
+function stopVideo() {
+    if (audio_video_stream) {
+        try {
+            audio_video_stream.stop();
+        } catch (e) {
+            for (var i = 0; i < audio_video_stream.getTracks().length; i++)
+                audio_video_stream.getTracks()[i].stop();
+        }
+        audio_video_stream = null;
+    }
+    document.getElementById('pibot_vid_feed').src = '';
+    if (pc) {
+        pc.close();
+        pc = null;
+    }
+    if (ws) {
+        ws.close();
+        ws = null;
+    }
+}
+
+function startVideo() {
+	codecOptions = {
+		force_hw_vcodec: false
+	}
+	
+	/*if (!window.mobileAndTabletcheck()) {
+		codecOptions = {
+			force_hw_vcodec: true,
+			vcodec: 35
+		}
+	}*/
+
+	if ("WebSocket" in window) {
+		var protocol = location.protocol === "https:" ? "wss:" : "ws:";
+		ws = new WebSocket(protocol + '//' + signalling_server_address + '/stream/webrtc');
+	
+		function offer(stream) {
+			createPeerConnection();
+			if (stream) {
+				pc.addStream(stream);
+			}
+			var command = {
+				command_id: "offer",
+				options: codecOptions
+			};
+			ws.send(JSON.stringify(command));
+			console.log("offer(), command=" + JSON.stringify(command));
+		}
+
+		ws.onopen = function () {
+			console.log("onopen()");
+
+			audio_video_stream = null;
+			var cast_mic = false;
+			var cast_tab = false;
+			var cast_camera = false;
+			var cast_screen = false;
+			var cast_window = false;
+			var cast_application = false;
+			var echo_cancellation = false;
+			var localConstraints = {};
+			if (cast_mic) {
+				if (echo_cancellation)
+				    localConstraints['audio'] = { optional: [{ echoCancellation: true }] };
+				else
+				    localConstraints['audio'] = { optional: [{ echoCancellation: false }] };
+			} else if (cast_tab)
+				localConstraints['audio'] = { mediaSource: "audioCapture" };
+			else
+				localConstraints['audio'] = false;
+			if (cast_camera)
+				localConstraints['video'] = true;
+			else if (cast_screen)
+				localConstraints['video'] = { frameRate: {ideal: 15, max: 30},
+				                              //width: {min: 640, max: 960},
+				                              //height: {min: 480, max: 720},
+				                              mozMediaSource: "screen",
+				                              mediaSource: "screen" };
+			else if (cast_window)
+				localConstraints['video'] = { frameRate: {ideal: 15, max: 30},
+				                              //width: {min: 640, max: 960},
+				                              //height: {min: 480, max: 720},
+				                              mozMediaSource: "window",
+				                              mediaSource: "window" };
+			else if (cast_application)
+				localConstraints['video'] = { frameRate: {ideal: 15, max: 30},
+				                              //width: {min: 640, max: 960},
+				                              //height:  {min: 480, max: 720},
+				                              mozMediaSource: "application",
+				                              mediaSource: "application" };
+			else
+				localConstraints['video'] = false;
+
+			localVideoElement = document.getElementById('local-video');
+			if (localConstraints.audio || localConstraints.video) {
+				if (navigator.getUserMedia) {
+				    navigator.getUserMedia(localConstraints, function(stream) {
+				        audio_video_stream = stream;
+				        offer(stream);
+				        localVideoElement.muted = true;
+				        localVideoElement.src = URL.createObjectURL(stream);
+				        localVideoElement.play();
+				    }, function(error) {
+				        stopVideo();
+				        alert("An error has occurred. Check media device, permissions on media and origin.");
+				        console.log(error);
+				    });
+				} else {
+				    console.log("getUserMedia not supported");
+				}
+			} else {
+				offer();
+			}
+		};
+
+		ws.onmessage = function (evt) {
+			var msg = JSON.parse(evt.data);
+			//console.log("message=" + msg);
+			console.log("type=" + msg.type);
+
+			switch (msg.type) {
+				case "offer":
+				    pc.setRemoteDescription(new RTCSessionDescription(msg),
+				        function onRemoteSdpSuccess() {
+				            console.log('onRemoteSdpSucces()');
+				            pc.createAnswer(function (sessionDescription) {
+				                pc.setLocalDescription(sessionDescription);
+				                var command = {
+				                    command_id: "answer",
+				                    data: JSON.stringify(sessionDescription)
+				                };
+				                ws.send(JSON.stringify(command));
+				                console.log(command);
+
+				            }, function (error) {
+				                alert("Failed to createAnswer: " + error);
+
+				            }, mediaConstraints);
+				        },
+				        function onRemoteSdpError(event) {
+				            //alert('Failed to set remote description (unsupported codec on this browser?): ' + event);
+
+					    failureCount++;
+
+				            stopVideo();
+
+					    //if (failureCount <= 1) {
+						//setTimeout("startVideo();", 2000);
+					    //}					    
+				        }
+				    );
+
+				    var command = {
+				        command_id: "geticecandidate"
+				    };
+				    console.log(command);
+				    ws.send(JSON.stringify(command));
+				    break;
+
+				case "answer":
+				    break;
+
+				case "message":
+				    alert(msg.data);
+				    break;
+
+				case "geticecandidate":
+				    var candidates = JSON.parse(msg.data);
+				    for (var i = 0; candidates && i < candidates.length; i++) {
+				        var elt = candidates[i];
+				        let candidate = new RTCIceCandidate({sdpMLineIndex: elt.sdpMLineIndex, candidate: elt.candidate});
+				        pc.addIceCandidate(candidate,
+				            function () {
+				                console.log("IceCandidate added: " + JSON.stringify(candidate));
+				            },
+				            function (error) {
+				                console.log("addIceCandidate error: " + error);
+				            }
+				        );
+				    }
+				    document.documentElement.style.cursor ='default';
+				    break;
+			}
+		};
+
+		ws.onclose = function (evt) {
+			if (pc) {
+				pc.close();
+				pc = null;
+			}
+		};
+
+		ws.onerror = function (evt) {
+			alert("An error has occurred!");
+			ws.close();
+		};
+	} else {
+		alert("Sorry, this browser does not support WebSockets.");
+	}
+}
+
+window.mobileAndTabletcheck = function() {
+  var check = false;
+  (function(a){if(/(android|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|iris|kindle|lge |maemo|midp|mmp|mobile.+firefox|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\/|plucker|pocket|psp|series(4|6)0|symbian|treo|up\.(browser|link)|vodafone|wap|windows ce|xda|xiino|android|ipad|playbook|silk/i.test(a)||/1207|6310|6590|3gso|4thp|50[1-6]i|770s|802s|a wa|abac|ac(er|oo|s\-)|ai(ko|rn)|al(av|ca|co)|amoi|an(ex|ny|yw)|aptu|ar(ch|go)|as(te|us)|attw|au(di|\-m|r |s )|avan|be(ck|ll|nq)|bi(lb|rd)|bl(ac|az)|br(e|v)w|bumb|bw\-(n|u)|c55\/|capi|ccwa|cdm\-|cell|chtm|cldc|cmd\-|co(mp|nd)|craw|da(it|ll|ng)|dbte|dc\-s|devi|dica|dmob|do(c|p)o|ds(12|\-d)|el(49|ai)|em(l2|ul)|er(ic|k0)|esl8|ez([4-7]0|os|wa|ze)|fetc|fly(\-|_)|g1 u|g560|gene|gf\-5|g\-mo|go(\.w|od)|gr(ad|un)|haie|hcit|hd\-(m|p|t)|hei\-|hi(pt|ta)|hp( i|ip)|hs\-c|ht(c(\-| |_|a|g|p|s|t)|tp)|hu(aw|tc)|i\-(20|go|ma)|i230|iac( |\-|\/)|ibro|idea|ig01|ikom|im1k|inno|ipaq|iris|ja(t|v)a|jbro|jemu|jigs|kddi|keji|kgt( |\/)|klon|kpt |kwc\-|kyo(c|k)|le(no|xi)|lg( g|\/(k|l|u)|50|54|\-[a-w])|libw|lynx|m1\-w|m3ga|m50\/|ma(te|ui|xo)|mc(01|21|ca)|m\-cr|me(rc|ri)|mi(o8|oa|ts)|mmef|mo(01|02|bi|de|do|t(\-| |o|v)|zz)|mt(50|p1|v )|mwbp|mywa|n10[0-2]|n20[2-3]|n30(0|2)|n50(0|2|5)|n7(0(0|1)|10)|ne((c|m)\-|on|tf|wf|wg|wt)|nok(6|i)|nzph|o2im|op(ti|wv)|oran|owg1|p800|pan(a|d|t)|pdxg|pg(13|\-([1-8]|c))|phil|pire|pl(ay|uc)|pn\-2|po(ck|rt|se)|prox|psio|pt\-g|qa\-a|qc(07|12|21|32|60|\-[2-7]|i\-)|qtek|r380|r600|raks|rim9|ro(ve|zo)|s55\/|sa(ge|ma|mm|ms|ny|va)|sc(01|h\-|oo|p\-)|sdk\/|se(c(\-|0|1)|47|mc|nd|ri)|sgh\-|shar|sie(\-|m)|sk\-0|sl(45|id)|sm(al|ar|b3|it|t5)|so(ft|ny)|sp(01|h\-|v\-|v )|sy(01|mb)|t2(18|50)|t6(00|10|18)|ta(gt|lk)|tcl\-|tdg\-|tel(i|m)|tim\-|t\-mo|to(pl|sh)|ts(70|m\-|m3|m5)|tx\-9|up(\.b|g1|si)|utst|v400|v750|veri|vi(rg|te)|vk(40|5[0-3]|\-v)|vm40|voda|vulc|vx(52|53|60|61|70|80|81|83|85|98)|w3c(\-| )|webc|whit|wi(g |nc|nw)|wmlb|wonu|x700|yas\-|your|zeto|zte\-/i.test(a.substr(0,4))) check = true;})(navigator.userAgent||navigator.vendor||window.opera);
+  return check;
+};
+
+window.onbeforeunload = function() {
+    if (ws) {
+        ws.onclose = function () {}; // disable onclose handler first
+        stopVideo();
+    }
+};
+
+startVideo();
 </script>
 </body>
 </html>
