@@ -16,6 +16,7 @@
 ############################################################# 
 
 import RPi.GPIO as GPIO
+import wiringpi
 import threading
 import time
 import signal
@@ -52,6 +53,8 @@ def forward():
 		GPIO.output(LEFT_REVERSE, 0)
 		GPIO.output(RIGHT_FORWARD, 1)
 		GPIO.output(RIGHT_REVERSE, 0)
+
+		wiringpi.pwmWrite(PWM, PWMSPEED)    # adjust duty cycle
 	else:
 		direction = "stopped"
 
@@ -64,6 +67,8 @@ def reverse():
 	GPIO.output(RIGHT_FORWARD, 0)
 	GPIO.output(RIGHT_REVERSE, 1)
 
+	wiringpi.pwmWrite(PWM, PWMSPEED)    # adjust duty cycle
+
 def right():
 	global direction
 
@@ -73,6 +78,8 @@ def right():
 	GPIO.output(LEFT_REVERSE, 0)
 	GPIO.output(RIGHT_FORWARD, 0)
 	GPIO.output(RIGHT_REVERSE, 1)
+
+	wiringpi.pwmWrite(PWM, PWMSPEED)    # adjust duty cycle
 
 	time.sleep(0.1)
 
@@ -90,6 +97,8 @@ def left():
 	GPIO.output(LEFT_REVERSE, 1)
 	GPIO.output(RIGHT_FORWARD, 1)
 	GPIO.output(RIGHT_REVERSE, 0)
+
+	wiringpi.pwmWrite(PWM, PWMSPEED)    # adjust duty cycle
 
 	time.sleep(0.1)
 
@@ -150,8 +159,33 @@ def autonomous():
         while getattr(t, "do_run", True):
 		while autonomousMode:
 			if direction != "forward":
-				left()
-				forward()
+				if distanceMeasures["front_right_distance"] <= 20 and distanceMeasures["front_center_distance"] <= 20 and distanceMeasures["front_left_distance"] <= 20:
+					left()
+					left()
+					time.sleep(0.15)
+					forward()
+				if distanceMeasures["front_right_distance"] <= 20 and distanceMeasures["front_center_distance"] <= 20:
+					left()
+					time.sleep(0.15)
+					forward()
+				elif distanceMeasures["front_left_distance"] <= 20 and distanceMeasures["front_center_distance"] <= 20:
+					right()
+					time.sleep(0.15)
+					forward()
+				elif distanceMeasures["front_right_distance"] <= 20:
+					left()
+					time.sleep(0.15)
+					forward()
+				elif distanceMeasures["front_left_distance"] <= 20:
+					right()
+					time.sleep(0.15)
+					forward()
+				elif distanceMeasures["front_center_distance"] <= 20:
+					left()
+					time.sleep(0.15)
+					forward()
+				else:
+					forward()
 			time.sleep(0.01)
 
 		time.sleep(1)
@@ -188,6 +222,16 @@ def sockClientHandler(client, addr):
                                         right()
 				elif direction == "autonomous":
 					autonomousMode = True
+				elif "calibrate_steering:" in direction:
+					parts = direction.split(':')
+
+					PWMSPEED = parts[1]
+
+					wiringpi.pwmWrite(PWM, PWMSPEED)					
+					
+					file = open(CALIBRATION_FILE, 'w')
+					file.write(PWMSPEED)
+					file.close()
                                 else:
 					autonomousMode = False
 
@@ -226,7 +270,7 @@ def getDistance(TRIG, ECHO, desiredDirection, key, threshold):
 				stop();
 		
 	except Exception as e:
-		errCount += 1
+		print "Exception in getDistance().  Key: " + key
 
 def measureThread():
 	global FRONT_RIGHT_TRIG
@@ -240,9 +284,12 @@ def measureThread():
 
         # keep running until our main thread sets "do_run" to false
         while getattr(t, "do_run", True):
-		getDistance(FRONT_RIGHT_TRIG, FRONT_RIGHT_ECHO, "forward", "front_right_distance", 20)				
-		getDistance(FRONT_CENTER_TRIG, FRONT_CENTER_ECHO, "forward", "front_center_distance", 20)				
-		getDistance(FRONT_LEFT_TRIG, FRONT_LEFT_ECHO, "forward", "front_left_distance", 20)				
+		try:
+			getDistance(FRONT_RIGHT_TRIG, FRONT_RIGHT_ECHO, "forward", "front_right_distance", 20)				
+			getDistance(FRONT_CENTER_TRIG, FRONT_CENTER_ECHO, "forward", "front_center_distance", 20)				
+			getDistance(FRONT_LEFT_TRIG, FRONT_LEFT_ECHO, "forward", "front_left_distance", 20)				
+		except Exception as e:
+			print "Exception in measureThread()"
 
 		time.sleep(0.15)
 
@@ -250,16 +297,30 @@ def measureThread():
 signal.signal(signal.SIGINT, signal_handler)
 
 # define friendly names for our pins (change to whatever your setup is)
-LEFT_FORWARD = 17
-LEFT_REVERSE = 18
-RIGHT_FORWARD = 22
-RIGHT_REVERSE = 23
+LEFT_FORWARD = 4
+LEFT_REVERSE = 17
+RIGHT_FORWARD = 23
+RIGHT_REVERSE = 22
 FRONT_RIGHT_TRIG = 8
 FRONT_RIGHT_ECHO = 11
 FRONT_CENTER_TRIG = 25
 FRONT_CENTER_ECHO = 9
 FRONT_LEFT_TRIG = 12
 FRONT_LEFT_ECHO = 6
+
+# set default PWM value
+PWMSPEED = 600
+
+CALIBRATION_FILE = 'steer_calibration.txt'
+
+if os.path.isfile(CALIBRATION_FILE):
+	file = open(CALIBRATION_FILE, 'r')
+
+	fileVal = file.read()
+
+	file.close()
+
+	PWMSPEED = fileVal.rstrip()
 
 # init GPIO
 GPIO.setmode(GPIO.BCM)
@@ -269,6 +330,13 @@ GPIO.setup(LEFT_FORWARD, GPIO.OUT)
 GPIO.setup(LEFT_REVERSE, GPIO.OUT)
 GPIO.setup(RIGHT_FORWARD, GPIO.OUT)
 GPIO.setup(RIGHT_REVERSE, GPIO.OUT)
+
+# init hardware pwm
+PWM=18
+
+wiringpi.wiringPiSetupGpio()
+wiringpi.pinMode(PWM, 2)     # PWM mode
+wiringpi.pwmWrite(PWM, PWMSPEED)    # adjust duty cycle
 
 if doCollisionDetect:
 	# Init ultrasonic sensor pins
