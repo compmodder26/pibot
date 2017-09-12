@@ -1,6 +1,13 @@
 <html>
 <head>
+	<link rel="stylesheet" href="src/jquery-ui/jquery-ui.min.css" />
+	<link rel="stylesheet" href="src/jquery-ui/jquery-ui.structure.min.css" />
+	<link rel="stylesheet" href="src/jquery-ui/jquery-ui.theme.min.css" />
+
 	<script src="socket.io/socket.io.js"></script>
+	<script src="src/jquery-3.2.1.min.js"></script>
+	<script src="src/jquery-ui/jquery-ui.min.js"></script>
+	<script src="src/jquery.ui.touch-punch.min.js"></script>
 
 	<style type="text/css">
 		@media screen and (orientation:portrait) {
@@ -86,6 +93,10 @@
 			margin:auto;
 		}
 
+		#sliderContainer {
+			margin:20px;
+		}
+
 	</style>
 </head>
 <body>
@@ -120,6 +131,12 @@
 		</table>
 
 		<p style="text-align:right; margin-right: 5px;"><button type="button" onclick="autonomous()">Autonomous</button></p>
+
+		<p style="margin-left: 20px"><strong>Straightness Calibration</strong></p>
+		<div style="float:left; text-align:left; width:50%;">Left</div>
+		<div style="float:left; text-align:right; width:50%;">Right</div>
+		<div style="float:none; clear:both;">&nbsp;</div>
+		<div id="calibration"></div>
 	</div>
 
 	<div style="float:none; clear:both">&nbsp;</div>
@@ -127,6 +144,7 @@
 </div>
 
 <script type="text/javascript">
+var firstRun = true;
 var socket = io.connect();
 
 function forward()
@@ -153,6 +171,29 @@ function autonomous()
 {
 	socket.emit('drive', { value: 'autonomous' });
 }
+
+$('#calibration').slider({
+	min	: 400,
+	max	: 1024,
+	step	: 10,
+	change	: function(event, ui) {
+		if (!firstRun) {
+			var val = 1024 - ($('#calibration').slider("value")) + 400;
+
+			socket.emit('drive', { value: 'calibrate_steering:' + val });
+		}
+
+		firstRun = false;
+	}
+});
+
+$('#calibration .ui-slider-handle').unbind('keydown');
+
+
+socket.on('calibrationRead', function(data){ $('#calibration').slider("value", 1424 - data); });
+
+socket.emit('getCalibrationReading', '');
+
 
 document.onkeyup = checkKey;
 

@@ -45,6 +45,7 @@ def forward():
 	global direction
 	global distanceMeasures
 	global doCollisionDetect
+	global PWMSPEED
 	direction = "forward"
 
 	# don't attempt to move forward if we're too close to an object
@@ -54,12 +55,13 @@ def forward():
 		GPIO.output(RIGHT_FORWARD, 1)
 		GPIO.output(RIGHT_REVERSE, 0)
 
-		wiringpi.pwmWrite(PWM, PWMSPEED)    # adjust duty cycle
+#		wiringpi.pwmWrite(PWM, PWMSPEED)    # adjust duty cycle
 	else:
 		direction = "stopped"
 
 def reverse():
 	global direction
+	global PWMSPEED
 	direction = "reverse"
 
 	GPIO.output(LEFT_FORWARD, 0)
@@ -67,10 +69,11 @@ def reverse():
 	GPIO.output(RIGHT_FORWARD, 0)
 	GPIO.output(RIGHT_REVERSE, 1)
 
-	wiringpi.pwmWrite(PWM, PWMSPEED)    # adjust duty cycle
+#	wiringpi.pwmWrite(PWM, PWMSPEED)    # adjust duty cycle
 
 def right():
 	global direction
+	global PWMSPEED
 
 	direction = "right"
 
@@ -79,7 +82,7 @@ def right():
 	GPIO.output(RIGHT_FORWARD, 0)
 	GPIO.output(RIGHT_REVERSE, 1)
 
-	wiringpi.pwmWrite(PWM, PWMSPEED)    # adjust duty cycle
+#	wiringpi.pwmWrite(PWM, PWMSPEED)    # adjust duty cycle
 
 	time.sleep(0.1)
 
@@ -90,6 +93,7 @@ def right():
 
 def left():
 	global direction
+	global PWMSPEED
 
 	direction = "left"
 
@@ -98,7 +102,7 @@ def left():
 	GPIO.output(RIGHT_FORWARD, 1)
 	GPIO.output(RIGHT_REVERSE, 0)
 
-	wiringpi.pwmWrite(PWM, PWMSPEED)    # adjust duty cycle
+#	wiringpi.pwmWrite(PWM, PWMSPEED)    # adjust duty cycle
 
 	time.sleep(0.1)
 
@@ -109,6 +113,7 @@ def left():
 
 def stop():
 	global direction
+	global PWMSPEED
 
 	direction = "stopped"
 
@@ -225,12 +230,14 @@ def sockClientHandler(client, addr):
 				elif "calibrate_steering:" in direction:
 					parts = direction.split(':')
 
-					PWMSPEED = parts[1]
+					PWMSPEED = int(parts[1])
 
 					wiringpi.pwmWrite(PWM, PWMSPEED)					
+
+					print "Changed PWM to " + str(PWMSPEED)
 					
 					file = open(CALIBRATION_FILE, 'w')
-					file.write(PWMSPEED)
+					file.write(str(PWMSPEED))
 					file.close()
                                 else:
 					autonomousMode = False
@@ -320,7 +327,10 @@ if os.path.isfile(CALIBRATION_FILE):
 
 	file.close()
 
-	PWMSPEED = fileVal.rstrip()
+	fileVal = fileVal.strip()
+
+	if len(fileVal) > 0:
+		PWMSPEED = int(fileVal.strip())
 
 # init GPIO
 GPIO.setmode(GPIO.BCM)
